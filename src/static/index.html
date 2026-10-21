@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="LTX-Video Studio - High-performance AI Video Generation with Lightricks LTX-Video Distilled">
+  <title>LTX-Video Studio | High-Performance AI Video Generator</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+</head>
+<body>
+
+  <!-- Top Navigation & Brand Header -->
+  <header class="app-header">
+    <a href="#" class="brand" id="brandLink">
+      <div class="brand-icon">✨</div>
+      <div class="brand-text">
+        <h1>LTX-Video Studio</h1>
+      </div>
+      <span class="brand-badge">Distilled v0.9</span>
+    </a>
+
+    <div class="header-status">
+      <div class="status-indicator" id="statusIndicator" title="Hugging Face Space Backend Status">
+        <span class="pulse-dot" id="pulseDot"></span>
+        <span id="statusText">Checking Engine...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace Grid -->
+  <main class="main-container">
+    
+    <!-- Left Column: Controls & Prompting -->
+    <section class="glass-panel" style="padding: 1.75rem;">
+      
+      <!-- Mode Tabs -->
+      <div class="mode-tabs" role="tablist">
+        <button class="tab-btn active" id="tabImageToVideo" role="tab" type="button">
+          <span>🖼️</span> Image-to-Video
+        </button>
+        <button class="tab-btn" id="tabTextToVideo" role="tab" type="button">
+          <span>✍️</span> Text-to-Video
+        </button>
+      </div>
+
+      <form id="generationForm">
+        
+        <!-- Image Drag & Drop Upload Zone -->
+        <div class="dropzone" id="dropzone" tabindex="0">
+          <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" style="display: none;">
+          
+          <div class="dropzone-content" id="dropzoneContent">
+            <div class="upload-icon-wrapper">📷</div>
+            <div class="dropzone-title">Drop an image here or click to browse</div>
+            <div class="dropzone-desc">Supports PNG, JPG, WebP (up to 50MB)</div>
+          </div>
+
+          <div class="image-preview-container" id="imagePreviewContainer">
+            <img id="imagePreview" class="image-preview" alt="Input Preview">
+            <button type="button" class="btn-remove-image" id="btnRemoveImage" title="Remove Image">✕</button>
+          </div>
+        </div>
+
+        <!-- Prompt Textarea Input -->
+        <div class="form-group">
+          <label class="form-label" for="promptInput">
+            <span>Animation Prompt</span>
+            <span class="label-hint">Describe motion, dynamics, lighting</span>
+          </label>
+          <textarea 
+            id="promptInput" 
+            class="textarea-input" 
+            placeholder="e.g. gentle breeze rustling through hair, cinematic warm sunlight, 4k ultra-realistic..."
+            required
+          ></textarea>
+
+          <!-- Prompt Inspiration Chips -->
+          <div class="presets-list" id="presetChips">
+            <button type="button" class="preset-chip" data-prompt="gentle breeze blowing hair, soft natural lighting, cinematic 4k">🌬️ Gentle Breeze</button>
+            <button type="button" class="preset-chip" data-prompt="water waves rippling smoothly, golden hour reflections, realistic">🌊 Ocean Waves</button>
+            <button type="button" class="preset-chip" data-prompt="character turns slowly towards the camera and smiles, studio lighting">😊 Turn & Smile</button>
+            <button type="button" class="preset-chip" data-prompt="smooth camera zoom-in with dramatic lighting, 8k resolution">🎥 Slow Zoom-in</button>
+          </div>
+        </div>
+
+        <!-- Resolution & Aspect Ratio -->
+        <div class="form-group">
+          <label class="form-label">
+            <span>Aspect Ratio & Resolution</span>
+            <span class="label-hint">Must be divisible by 32</span>
+          </label>
+
+          <div class="ratio-chips" id="ratioChips">
+            <button type="button" class="ratio-btn active" data-w="704" data-h="512">4:3 (704x512)</button>
+            <button type="button" class="ratio-btn" data-w="704" data-h="384">16:9 (704x384)</button>
+            <button type="button" class="ratio-btn" data-w="384" data-h="704">9:16 (384x704)</button>
+            <button type="button" class="ratio-btn" data-w="512" data-h="512">1:1 (512x512)</button>
+          </div>
+
+          <div class="controls-grid" style="margin-top: 0.75rem;">
+            <div>
+              <label class="label-hint" for="widthInput">Width (px)</label>
+              <input type="number" id="widthInput" class="text-input" value="704" step="32" min="256" max="1280">
+            </div>
+            <div>
+              <label class="label-hint" for="heightInput">Height (px)</label>
+              <input type="number" id="heightInput" class="text-input" value="512" step="32" min="256" max="1280">
+            </div>
+          </div>
+        </div>
+
+        <!-- Video Duration -->
+        <div class="form-group">
+          <label class="form-label" for="durationSlider">
+            <span>Video Duration</span>
+            <span class="range-val" id="durationVal">2.0s</span>
+          </label>
+          <div class="range-slider-wrapper">
+            <input type="range" id="durationSlider" class="range-slider" min="0.5" max="8.0" step="0.5" value="2.0">
+          </div>
+        </div>
+
+        <!-- Collapsible Advanced Settings -->
+        <div class="accordion" id="advancedAccordion">
+          <div class="accordion-header" id="accordionHeader">
+            <span>⚙️ Advanced Settings (CFG, Seed, Texture)</span>
+            <span class="accordion-icon">▼</span>
+          </div>
+
+          <div class="accordion-body">
+            
+            <!-- Guidance Scale / CFG -->
+            <div class="form-group">
+              <label class="form-label" for="cfgSlider">
+                <span>Guidance Scale (CFG)</span>
+                <span class="range-val" id="cfgVal">1.0</span>
+              </label>
+              <input type="range" id="cfgSlider" class="range-slider" min="0.5" max="5.0" step="0.5" value="1.0">
+            </div>
+
+            <!-- Seed & Randomize -->
+            <div class="controls-grid" style="align-items: center;">
+              <div>
+                <label class="label-hint" for="seedInput">Seed</label>
+                <input type="number" id="seedInput" class="text-input" value="42">
+              </div>
+              <div style="padding-top: 1.25rem;">
+                <label class="checkbox-label" for="randomizeSeedCheckbox">
+                  <input type="checkbox" id="randomizeSeedCheckbox" checked>
+                  <span>Randomize Seed</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Texture enhancement -->
+            <div class="form-group" style="margin-top: 0.75rem;">
+              <label class="checkbox-label" for="improveTextureCheckbox">
+                <input type="checkbox" id="improveTextureCheckbox" checked>
+                <span>Improve Texture (Multi-scale 2-pass quality)</span>
+              </label>
+            </div>
+
+            <!-- Negative Prompt -->
+            <div class="form-group">
+              <label class="form-label" for="negPromptInput">
+                <span>Negative Prompt</span>
+              </label>
+              <textarea 
+                id="negPromptInput" 
+                class="textarea-input" 
+                rows="2"
+              >worst quality, inconsistent motion, blurry, jittery, distorted</textarea>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="btn-primary" id="btnGenerate">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-text">Generate Image-to-Video</span>
+        </button>
+
+      </form>
+    </section>
+
+    <!-- Right Column: Player & Video Gallery -->
+    <section class="output-panel">
+      
+      <!-- Live Output Card -->
+      <div class="glass-panel player-card">
+        
+        <!-- Empty State Placeholder -->
+        <div class="placeholder-view" id="placeholderView">
+          <div class="placeholder-icon">🎬</div>
+          <div class="placeholder-text">Configure your prompt and click Generate to produce high-frame-rate AI video.</div>
+        </div>
+
+        <!-- Real-time Progress Box -->
+        <div class="progress-container" id="progressContainer">
+          <div class="progress-header">
+            <span class="progress-title" id="progressTitle">Initializing Queue...</span>
+            <span class="progress-badge" id="progressBadge">Starting</span>
+          </div>
+
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progressBarFill"></div>
+          </div>
+
+          <div class="progress-logs" id="progressLogs">
+            <div>[*] Connecting to Gradio SSE backend...</div>
+          </div>
+        </div>
+
+        <!-- Video Player View -->
+        <div class="video-wrapper" id="videoWrapper">
+          <div class="video-container">
+            <video id="videoPlayer" class="video-player" controls autoplay loop playsinline></video>
+          </div>
+
+          <div class="player-actions">
+            <button type="button" class="btn-action" id="btnDownload">
+              <span>💾</span> Download MP4
+            </button>
+            <button type="button" class="btn-action" id="btnCopyLink">
+              <span>🔗</span> Copy Link
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Generated History Gallery -->
+      <div class="glass-panel gallery-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Recent Generations</h2>
+          <span class="label-hint" id="galleryCount">Saved in downloaded_files</span>
+        </div>
+
+        <div class="gallery-grid" id="galleryGrid">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

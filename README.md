@@ -35,6 +35,56 @@ Provides two execution paths:
 
 ---
 
+## 🚀 Quick Start (venv Setup)
+
+Follow these steps to set up the isolated Python virtual environment, install dependencies, and start generating:
+
+### 1. Create & Activate the Virtual Environment
+
+```bash
+# Create virtual environment in .venv
+python3 -m venv .venv
+
+# Activate on Linux / macOS:
+source .venv/bin/activate
+
+# (On Windows PowerShell: .venv\Scripts\Activate.ps1)
+# (On Windows Command Prompt: .venv\Scripts\activate.bat)
+```
+
+### 2. Install Required Dependencies
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Initialize Environment Configuration
+
+```bash
+cp .env.example .env
+```
+*(Optionally adjust `GUI_PORT`, `OUTPUT_DIR`, or backend settings in `.env`)*
+
+### 4. Launch
+
+#### Option A: Start the Web Studio GUI
+```bash
+python src/server.py
+```
+Open **[http://localhost:7860](http://localhost:7860)** in your browser.
+
+#### Option B: Run via Direct CLI
+```bash
+# Image-to-Video
+python src/ltx_video.py --image path/to/image.png --prompt "gentle breeze moving hair"
+
+# Text-to-Video
+python src/ltx_video.py --prompt "an astronaut walking on mars at sunset"
+```
+
+---
+
 ## 🔍 Key Technical Findings
 
 ### 1. How `perchance.org/ltx-video` Works
@@ -135,9 +185,37 @@ python3 src/gen_selenium.py --image input.png --prompt "camera zooming in slowly
 
 ---
 
+## 🖥️ 3. Web GUI Studio (`src/server.py`)
+
+A modern, responsive web application for interactive video generation:
+
+![GUI Preview](docs/gui_preview.png)
+
+### Features
+- **Visual Drag & Drop Upload**: Upload any PNG, JPG, or WebP image with automatic aspect ratio detection.
+- **Aspect Ratio Presets**: One-click selection for 16:9, 9:16, 1:1, and 4:3 resolutions (guaranteed divisible by 32).
+- **Inspiration Prompts**: Quick prompt chips for fast animation ideas.
+- **Real-Time SSE Progress Bar**: Live progress tracking displaying queue position, ETA, and step-by-step diffusion rendering.
+- **Embedded Player**: Instant playback, loop, fullscreen, MP4 download, and link sharing.
+- **Recent Generations Gallery**: Local gallery displaying previously generated videos with timestamps, file sizes, and one-click deletion.
+- **Live Space Health Indicator**: Automatic polling indicating backend engine health (Online, Waking Up, Offline).
+
+### Starting the Web GUI
+
+```bash
+# Start server on default port 7860
+python3 src/server.py
+
+# Or customize host & port
+GUI_PORT=8080 GUI_HOST=0.0.0.0 python3 src/server.py
+```
+Open **[http://localhost:7860](http://localhost:7860)** in your browser.
+
+---
+
 ## ⚙️ Environment Configuration (`.env`)
 
-For running the upcoming GUI interface and configuring network ports, copy the template:
+For running the GUI interface and configuring network ports, copy the template:
 ```bash
 cp .env.example .env
 ```
@@ -168,8 +246,21 @@ Key architectural choices are documented in [`docs/adr/`](docs/adr/):
 
 ---
 
-## 📦 Installation
+## 📦 Manual Setup & Installation
 
 ```bash
+# 1. Create a virtual environment
+python3 -m venv .venv
+
+# 2. Activate the virtual environment
+source .venv/bin/activate       # Linux / macOS
+# .venv\Scripts\Activate.ps1    # Windows PowerShell
+# .venv\Scripts\activate.bat    # Windows Command Prompt
+
+# 3. Upgrade pip and install requirements
+pip install --upgrade pip
 pip install -r requirements.txt
+
+# 4. Copy environment configuration
+cp .env.example .env
 ```

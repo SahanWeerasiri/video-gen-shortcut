@@ -13,7 +13,7 @@ import string
 import random
 import mimetypes
 import argparse
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Callable
 import requests
 
 DEFAULT_BASE_URL = os.getenv("LTX_BACKEND_URL", "https://lightricks-ltx-video-distilled.hf.space")
@@ -174,6 +174,7 @@ class LTXVideoClient:
         guidance_scale: float = 1.0,
         improve_texture: bool = True,
         output_path: str = "output.mp4",
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
         """
         Runs the Image-to-Video generation pipeline.
@@ -236,7 +237,7 @@ class LTXVideoClient:
         print(f"[+] Enqueued successfully. Event ID: {event_id}")
 
         # 6. Stream SSE events & wait for completion
-        video_url = self._wait_for_completion(session_hash, event_id)
+        video_url = self._wait_for_completion(session_hash, event_id, progress_callback=progress_callback)
 
         # 7. Download output video
         print(f"[*] Downloading generated video from {video_url}...")
@@ -256,6 +257,7 @@ class LTXVideoClient:
         guidance_scale: float = 1.0,
         improve_texture: bool = True,
         output_path: str = "output.mp4",
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
         """Runs the Text-to-Video generation pipeline (fn_index 4)."""
         self.check_and_wake_space()
@@ -294,12 +296,17 @@ class LTXVideoClient:
         event_id = join_resp.json().get("event_id")
         print(f"[+] Enqueued successfully. Event ID: {event_id}")
 
-        video_url = self._wait_for_completion(session_hash, event_id)
+        video_url = self._wait_for_completion(session_hash, event_id, progress_callback=progress_callback)
         self._download_file(video_url, output_path)
         print(f"[+] Video saved to: {os.path.abspath(output_path)}")
         return output_path
 
-    def _wait_for_completion(self, session_hash: str, event_id: str) -> str:
+    def _wait_for_completion(
+        self,
+        session_hash: str,
+        event_id: str,
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> str:
         """Listens to SSE stream until process_completed is received."""
         sse_url = f"{self.base_url}/gradio_api/queue/data?session_hash={session_hash}"
         headers = {"Accept": "text/event-stream"}
@@ -324,6 +331,11 @@ class LTXVideoClient:
                     continue
 
                 msg = event.get("msg")
+                if progress_callback:
+                    try:
+                        progress_callback(msg, event)
+                    except Exception:
+                        pass
                 if msg == "estimation":
                     rank = event.get("rank", 0)
                     q_size = event.get("queue_size", 1)
