@@ -12,9 +12,22 @@ import time
 import string
 import random
 import mimetypes
-import argparse
-from typing import Optional, Dict, Any, Tuple
+from pathlib import Path
+from typing import Optional, Dict, Any, Tuple, Callable
 import requests
+
+# Load local environment if .env file exists
+env_path = Path(__file__).resolve().parent.parent / ".env"
+if env_path.exists():
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                k = key.strip()
+                v = val.strip().strip('"').strip("'")
+                if k and (k not in os.environ or not os.environ[k]):
+                    os.environ[k] = v
 
 DEFAULT_BASE_URL = os.getenv("LTX_BACKEND_URL", "https://lightricks-ltx-video-distilled.hf.space")
 DEFAULT_NEGATIVE_PROMPT = os.getenv(
@@ -37,7 +50,7 @@ class LTXVideoClient:
             "Origin": self.base_url,
             "Referer": f"{self.base_url}/",
         }
-        hf_token = os.getenv("HF_TOKEN")
+        hf_token = (os.getenv("HF_TOKEN") or "").strip()
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
         self.session.headers.update(headers)
@@ -174,6 +187,7 @@ class LTXVideoClient:
         guidance_scale: float = 1.0,
         improve_texture: bool = True,
         output_path: str = "output.mp4",
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
         """
         Runs the Image-to-Video generation pipeline.
@@ -236,7 +250,7 @@ class LTXVideoClient:
         print(f"[+] Enqueued successfully. Event ID: {event_id}")
 
         # 6. Stream SSE events & wait for completion
-        video_url = self._wait_for_completion(session_hash, event_id)
+        video_url = self._wait_for_completion(session_hash, event_id, progress_callback=progress_callback)
 
         # 7. Download output video
         print(f"[*] Downloading generated video from {video_url}...")
@@ -256,6 +270,7 @@ class LTXVideoClient:
         guidance_scale: float = 1.0,
         improve_texture: bool = True,
         output_path: str = "output.mp4",
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
         """Runs the Text-to-Video generation pipeline (fn_index 4)."""
         self.check_and_wake_space()
@@ -294,12 +309,17 @@ class LTXVideoClient:
         event_id = join_resp.json().get("event_id")
         print(f"[+] Enqueued successfully. Event ID: {event_id}")
 
-        video_url = self._wait_for_completion(session_hash, event_id)
+        video_url = self._wait_for_completion(session_hash, event_id, progress_callback=progress_callback)
         self._download_file(video_url, output_path)
         print(f"[+] Video saved to: {os.path.abspath(output_path)}")
         return output_path
 
-    def _wait_for_completion(self, session_hash: str, event_id: str) -> str:
+    def _wait_for_completion(
+        self,
+        session_hash: str,
+        event_id: str,
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> str:
         """Listens to SSE stream until process_completed is received."""
         sse_url = f"{self.base_url}/gradio_api/queue/data?session_hash={session_hash}"
         headers = {"Accept": "text/event-stream"}
@@ -324,6 +344,11 @@ class LTXVideoClient:
                     continue
 
                 msg = event.get("msg")
+                if progress_callback:
+                    try:
+                        progress_callback(msg, event)
+                    except Exception:
+                        pass
                 if msg == "estimation":
                     rank = event.get("rank", 0)
                     q_size = event.get("queue_size", 1)
@@ -340,7 +365,16 @@ class LTXVideoClient:
                         print(f"[*] Generating: {index}/{length} {unit}")
                 elif msg == "process_completed":
                     if not event.get("success", False):
-                        raise RuntimeError(f"Generation failed on server: {event}")
+                        output_info = event.get("output", {})
+                        err_text = output_info.get("error") if isinstance(output_info, dict) else None
+                        title = event.get("title") or (output_info.get("title") if isinstance(output_info, dict) else None)
+                        if err_text:
+                            err_desc = f"{title}: {err_text}" if title and title != err_text else err_text
+                        elif title:
+                            err_desc = title
+                        else:
+                            err_desc = str(event)
+                        raise RuntimeError(f"Generation failed on server: {err_desc}")
 
                     out_data = event.get("output", {}).get("data", [])
                     if not out_data or "video" not in out_data[0]:

@@ -14,7 +14,14 @@ Provides two execution paths:
 .
 ├── src/
 │   ├── ltx_video.py          # Primary direct HTTP & SSE API client + CLI tool
-│   └── gen_selenium.py       # SeleniumBase UC-mode browser fallback generator
+│   ├── gen_selenium.py       # SeleniumBase UC-mode browser fallback generator
+│   ├── server.py             # FastAPI backend with multi-engine routing & SSE
+│   └── static/               # Web GUI Studio frontend (Vanilla JS & Modern CSS)
+│       ├── index.html        # Single-page web studio interface
+│       ├── css/style.css     # Premium dark-mode design system & animations
+│       └── js/app.js         # Reactive SSE progress & generation manager
+├── tests/
+│   └── test_engine_fallback.py # Unit tests for auto fallback, direct, and selenium
 ├── docs/
 │   ├── findings/
 │   │   ├── data.txt          # Browser DevTools network trace of Gradio queue calls
@@ -25,12 +32,63 @@ Provides two execution paths:
 │       ├── 0002-client-side-session-hash-generation.md
 │       ├── 0003-cloudflare-challenge-bypass-via-direct-space-api.md
 │       ├── 0004-dual-engine-architecture-api-and-selenium-fallback.md
-│       └── 0005-gui-service-architecture-and-configuration.md
+│       ├── 0005-gui-service-architecture-and-configuration.md
+│       └── 0006-dynamic-engine-selection-and-automated-zerogpu-fallback.md
 ├── downloaded_files/         # Destination directory for generated MP4 videos
 ├── .env.example              # GUI, networking, port, and engine configuration template
-├── requirements.txt          # Python dependencies (requests, Pillow, seleniumbase)
+├── requirements.txt          # Python dependencies (requests, Pillow, seleniumbase, fastapi)
 ├── AGENTS.md                 # Engineering guidelines and development standards
 └── README.md                 # Project documentation and onboarding
+```
+
+---
+
+## 🚀 Quick Start (venv Setup)
+
+Follow these steps to set up the isolated Python virtual environment, install dependencies, and start generating:
+
+### 1. Create & Activate the Virtual Environment
+
+```bash
+# Create virtual environment in .venv
+python3 -m venv .venv
+
+# Activate on Linux / macOS:
+source .venv/bin/activate
+
+# (On Windows PowerShell: .venv\Scripts\Activate.ps1)
+# (On Windows Command Prompt: .venv\Scripts\activate.bat)
+```
+
+### 2. Install Required Dependencies
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Initialize Environment Configuration
+
+```bash
+cp .env.example .env
+```
+*(Optionally adjust `GUI_PORT`, `OUTPUT_DIR`, or backend settings in `.env`)*
+
+### 4. Launch
+
+#### Option A: Start the Web Studio GUI
+```bash
+python src/server.py
+```
+Open **[http://localhost:7860](http://localhost:7860)** in your browser.
+
+#### Option B: Run via Direct CLI
+```bash
+# Image-to-Video
+python src/ltx_video.py --image path/to/image.png --prompt "gentle breeze moving hair"
+
+# Text-to-Video
+python src/ltx_video.py --prompt "an astronaut walking on mars at sunset"
 ```
 
 ---
@@ -121,23 +179,118 @@ print(f"Video saved to: {output_file}")
 Modeled after [`headless-telebot/gen.py`](/home/sahan-weerasiri/projects/headless_telebot/gen.py):
 - Uses SeleniumBase **UC Mode** to bypass Cloudflare Turnstile on `perchance.org`.
 - Traverses nested iframes (`#outputIframeEl` -> `#genFrame`).
-- Automates the UI: uploads to `input[type="file"]`, sets the prompt, triggers `Generate Image-to-Video`, polls for the `<video>` element, and downloads the MP4.
+- Supports both **Image-to-Video** and **Text-to-Video** generation.
+- Streams live progress callbacks (`Initializing browser`, `Entering prompt`, `Rendering video`, `Downloading MP4`) directly into the Web Studio or terminal.
 
 ### CLI Usage
 
 ```bash
-# Run headless (default)
+# Image-to-Video (headless by default)
 python3 src/gen_selenium.py --image input.png --prompt "camera zooming in slowly" --output downloaded_files/result.mp4
 
+# Text-to-Video
+python3 src/gen_selenium.py --prompt "a cinematic shot of an astronaut on mars" --output downloaded_files/mars.mp4
+
 # Run with visible browser window
-python3 src/gen_selenium.py --image input.png --prompt "camera zooming in slowly" --headed
+python3 src/gen_selenium.py --prompt "ocean waves at sunset" --headed
 ```
+
+---
+
+## 🖥️ 3. Web GUI Studio (`src/server.py`)
+
+A modern, responsive web application for interactive video generation:
+
+![GUI Preview](docs/gui_preview.png)
+
+### Features
+- **Dynamic Engine Selection & Auto-Fallback**:
+  - `🔄 Auto Fallback` *(Default)*: Runs the Direct API for maximum speed (~6.5s); if ZeroGPU quota limit is reached or the space is sleeping, it automatically fails over to the Selenium engine without interrupting generation.
+  - `⚡ Direct API`: Enforces direct Gradio/HF Space communication.
+  - `🌐 Selenium`: Routes tasks straight to the Perchance UC browser engine (unlimited generation, bypasses ZeroGPU quota).
+- **Visual Drag & Drop Upload**: Upload any PNG, JPG, or WebP image with automatic aspect ratio detection.
+- **Aspect Ratio Presets**: One-click selection for 16:9, 9:16, 1:1, and 4:3 resolutions (guaranteed divisible by 32).
+- **Inspiration Prompts**: Quick prompt chips for fast animation ideas.
+- **Real-Time SSE Progress Bar**: Live progress tracking displaying queue position, ETA, and step-by-step diffusion rendering (with automatic fallback status badges).
+- **Embedded Player**: Instant playback, loop, fullscreen, MP4 download, and link sharing.
+- **Recent Generations Gallery**: Local gallery displaying previously generated videos with timestamps, file sizes, and one-click deletion.
+- **Live Space Health Indicator**: Automatic polling indicating backend engine health (Online, Waking Up, Offline).
+
+### Starting the Web GUI
+
+```bash
+# Start server on default port 7860
+python3 src/server.py
+
+# Or customize host & port
+GUI_PORT=8080 GUI_HOST=0.0.0.0 python3 src/server.py
+```
+Open **[http://localhost:7860](http://localhost:7860)** in your browser.
+
+---
+
+## 🔑 Hugging Face Tokens & ZeroGPU Quotas (Free vs. Pro)
+
+The direct API and underlying Hugging Face Space (`lightricks-ltx-video-distilled`) run on Hugging Face **ZeroGPU** (dynamic NVIDIA A100/H100 clusters).
+
+### 1. What You Get with a Free Hugging Face Token (`HF_TOKEN`)
+
+Creating a Hugging Face account is **100% free** and takes less than a minute (no credit card required). Setting a free token unlocks critical capabilities compared to anonymous access:
+
+* **Dedicated Personal Compute Quota**: Anonymous requests share an IP-based compute pool. If your IP address or local network was recently active, you may encounter:
+  ```text
+  ZeroGPU quota exceeded: You have exceeded your ZeroGPU quota (120s requested vs. -60s left).
+  Authenticate with a Hugging Face token for more quota - https://huggingface.co/settings/tokens
+  ```
+  Adding your free `HF_TOKEN` assigns a dedicated rolling quota tied directly to your individual account ID rather than a shared IP address.
+* **~15–40 Generations per Rolling Cycle**: ZeroGPU measures *active GPU execution seconds*, not connection time. Because LTX-Video Distilled runs in only ~6–10 seconds of GPU compute per generation, a standard free account rolling window (~120s–300s) allows **15 to 40 complete video generations** before needing a brief cooldown.
+* **Higher Queue Priority**: During periods of high traffic, authenticated user requests take precedence in the Gradio task queue (`/gradio_api/queue/join`) over unauthenticated guest traffic.
+* **Space Wake-Up Reliability**: If the community space is asleep, authenticated requests reliably wake it up without connection drops.
+* **Immunity to VPN / NAT / Proxy IP Clashes**: Avoid quota starvation caused by multiple users, offices, or VPN servers sharing the same public IP.
+* **Full Hub & Serverless API Access**: In addition to ZeroGPU Spaces, your free token grants access to Hugging Face's Serverless Inference API for thousands of open-source vision, audio, and language models.
+
+---
+
+### 2. Comparison Matrix: Anonymous vs. Free Token vs. Pro
+
+| Feature | Anonymous (No Token) | Free Account Token (`HF_TOKEN`) | Hugging Face PRO ($9/mo) |
+|---|---|---|---|
+| **Cost** | Free ($0) | **Free ($0, No credit card)** | $9 / month |
+| **Quota Identity** | Shared Public IP Address | **Personal User Account** | Personal User Account |
+| **ZeroGPU Compute Window** | Shared IP pool (~60s) | **Dedicated rolling window (~120s–300s)** | **5x–10x multiplier (~1000s+)** |
+| **Est. Generations / Cooldown** | 0–5 (often depleted by IP) | **~15–40 video generations** | 100+ video generations |
+| **Queue Priority** | Guest (Lowest) | **Standard Authenticated** | Highest VIP Priority |
+| **Direct API Reliability** | Frequent quota lockouts | **High reliability** | Maximum reliability |
+| **Engine Behavior in Studio** | Falls back to Selenium | **Fast Direct API (~6.5s)** | **Fast Direct API (~6.5s)** |
+
+> [!TIP]
+> **Automatic Engine Fallback**: If you do not configure a token or temporarily exhaust your personal quota, our studio's `🔄 Auto Fallback` engine detects the ZeroGPU quota limit and immediately shifts generation to the headless Selenium browser engine without interrupting your workflow.
+
+---
+
+### 3. Step-by-Step: How to Generate & Configure Your Free Token
+
+1. **Sign Up / Log In**: Visit [huggingface.co/join](https://huggingface.co/join) (free account).
+2. **Access Token Settings**: Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+3. **Create Token**: Click **"Create new token"** (or **"+ New token"**).
+   * **Token Type**: Select **"Fine-grained"** (or classic **"Read"**).
+   * **Permissions**: Ensure **"Read access to contents of all public gated repos"** is checked (or default `read` scope). No write permissions are required.
+4. **Copy Token**: Copy the generated string (starts with `hf_...`).
+5. **Add to `.env`**: Open your `.env` file and paste the token:
+   ```bash
+   HF_TOKEN=hf_YourActualTokenHere
+   ```
+6. **Restart GUI / Run CLI**:
+   ```bash
+   python src/server.py
+   ```
+   All requests will now carry the `Authorization: Bearer hf_...` header with personal ZeroGPU allocation.
 
 ---
 
 ## ⚙️ Environment Configuration (`.env`)
 
-For running the upcoming GUI interface and configuring network ports, copy the template:
+For running the GUI interface and configuring network ports, copy the template:
 ```bash
 cp .env.example .env
 ```
@@ -147,12 +300,26 @@ Key environment variables:
 |---|---|---|
 | `GUI_HOST` | `0.0.0.0` | Network interface for GUI server binding |
 | `GUI_PORT` | `7860` | Web port for the GUI interface (e.g. 7860 or 8080) |
+| `ALLOWED_ORIGINS` | `http://localhost:7860,...` | Allowed CORS origins for API requests |
 | `LTX_BACKEND_URL` | `https://lightricks-ltx-video-distilled.hf.space` | Hugging Face Space endpoint |
 | `HF_TOKEN` | *(optional)* | Hugging Face user token for elevated rate limits |
 | `OUTPUT_DIR` | `./downloaded_files` | Directory where generated MP4 videos are saved |
 | `DEFAULT_DURATION`| `2.0` | Target video duration in seconds (0.3s - 8.5s) |
 | `DEFAULT_WIDTH` | `704` | Default width (must be divisible by 32) |
 | `DEFAULT_HEIGHT`| `512` | Default height (must be divisible by 32) |
+| `SELENIUM_HEADLESS`| `true` | Run Selenium browser engine headlessly |
+| `BROWSER_BINARY_PATH`| `/usr/bin/brave-browser` | Path to browser binary for UC mode |
+
+---
+
+## 🧪 Automated Testing
+
+The project includes unit tests for multi-engine routing, direct execution, and automated fallback logic:
+
+```bash
+# Run unit tests
+python3 -m unittest discover tests
+```
 
 ---
 
@@ -165,11 +332,25 @@ Key architectural choices are documented in [`docs/adr/`](docs/adr/):
 - [**ADR-0003**](docs/adr/0003-cloudflare-challenge-bypass-via-direct-space-api.md): Cloudflare Challenge Bypass via Direct Space API Architecture
 - [**ADR-0004**](docs/adr/0004-dual-engine-architecture-api-and-selenium-fallback.md): Dual-Engine Architecture (Direct API Primary with SeleniumBase UC Fallback)
 - [**ADR-0005**](docs/adr/0005-gui-service-architecture-and-configuration.md): GUI Service Architecture and Environment Configuration
+- [**ADR-0006**](docs/adr/0006-dynamic-engine-selection-and-automated-zerogpu-fallback.md): Dynamic Engine Selection and Automated ZeroGPU Fallback
 
 ---
 
-## 📦 Installation
+## 📦 Manual Setup & Installation
 
 ```bash
+# 1. Create a virtual environment
+python3 -m venv .venv
+
+# 2. Activate the virtual environment
+source .venv/bin/activate       # Linux / macOS
+# .venv\Scripts\Activate.ps1    # Windows PowerShell
+# .venv\Scripts\activate.bat    # Windows Command Prompt
+
+# 3. Upgrade pip and install requirements
+pip install --upgrade pip
 pip install -r requirements.txt
+
+# 4. Copy environment configuration
+cp .env.example .env
 ```
