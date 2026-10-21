@@ -44,6 +44,28 @@
         </button>
       </div>
 
+      <!-- Engine Mode Selector Toggle -->
+      <div class="engine-bar" id="engineBar">
+        <div class="engine-bar-label">
+          <span class="engine-bar-icon">⚙️</span>
+          <span>Engine:</span>
+        </div>
+        <div class="engine-toggle-group" id="engineToggleGroup" role="radiogroup" aria-label="Engine Mode">
+          <button type="button" class="engine-toggle-btn active" data-engine="auto" id="engineBtnAuto" title="Direct API first; automatically falls back to Selenium if rate limited or quota exceeded">
+            <span class="engine-btn-icon">🔄</span>
+            <span>Auto Fallback</span>
+          </button>
+          <button type="button" class="engine-toggle-btn" data-engine="direct" id="engineBtnDirect" title="Direct Hugging Face Gradio API (~6.5s, subject to ZeroGPU quota)">
+            <span class="engine-btn-icon">⚡</span>
+            <span>Direct API</span>
+          </button>
+          <button type="button" class="engine-toggle-btn" data-engine="selenium" id="engineBtnSelenium" title="SeleniumBase Perchance Browser (Unlimited, bypasses ZeroGPU quota)">
+            <span class="engine-btn-icon">🌐</span>
+            <span>Selenium</span>
+          </button>
+        </div>
+      </div>
+
       <form id="generationForm">
         
         <!-- Image Drag & Drop Upload Zone -->

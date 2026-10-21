@@ -14,7 +14,14 @@ Provides two execution paths:
 .
 ├── src/
 │   ├── ltx_video.py          # Primary direct HTTP & SSE API client + CLI tool
-│   └── gen_selenium.py       # SeleniumBase UC-mode browser fallback generator
+│   ├── gen_selenium.py       # SeleniumBase UC-mode browser fallback generator
+│   ├── server.py             # FastAPI backend with multi-engine routing & SSE
+│   └── static/               # Web GUI Studio frontend (Vanilla JS & Modern CSS)
+│       ├── index.html        # Single-page web studio interface
+│       ├── css/style.css     # Premium dark-mode design system & animations
+│       └── js/app.js         # Reactive SSE progress & generation manager
+├── tests/
+│   └── test_engine_fallback.py # Unit tests for auto fallback, direct, and selenium
 ├── docs/
 │   ├── findings/
 │   │   ├── data.txt          # Browser DevTools network trace of Gradio queue calls
@@ -25,10 +32,11 @@ Provides two execution paths:
 │       ├── 0002-client-side-session-hash-generation.md
 │       ├── 0003-cloudflare-challenge-bypass-via-direct-space-api.md
 │       ├── 0004-dual-engine-architecture-api-and-selenium-fallback.md
-│       └── 0005-gui-service-architecture-and-configuration.md
+│       ├── 0005-gui-service-architecture-and-configuration.md
+│       └── 0006-dynamic-engine-selection-and-automated-zerogpu-fallback.md
 ├── downloaded_files/         # Destination directory for generated MP4 videos
 ├── .env.example              # GUI, networking, port, and engine configuration template
-├── requirements.txt          # Python dependencies (requests, Pillow, seleniumbase)
+├── requirements.txt          # Python dependencies (requests, Pillow, seleniumbase, fastapi)
 ├── AGENTS.md                 # Engineering guidelines and development standards
 └── README.md                 # Project documentation and onboarding
 ```
@@ -171,16 +179,20 @@ print(f"Video saved to: {output_file}")
 Modeled after [`headless-telebot/gen.py`](/home/sahan-weerasiri/projects/headless_telebot/gen.py):
 - Uses SeleniumBase **UC Mode** to bypass Cloudflare Turnstile on `perchance.org`.
 - Traverses nested iframes (`#outputIframeEl` -> `#genFrame`).
-- Automates the UI: uploads to `input[type="file"]`, sets the prompt, triggers `Generate Image-to-Video`, polls for the `<video>` element, and downloads the MP4.
+- Supports both **Image-to-Video** and **Text-to-Video** generation.
+- Streams live progress callbacks (`Initializing browser`, `Entering prompt`, `Rendering video`, `Downloading MP4`) directly into the Web Studio or terminal.
 
 ### CLI Usage
 
 ```bash
-# Run headless (default)
+# Image-to-Video (headless by default)
 python3 src/gen_selenium.py --image input.png --prompt "camera zooming in slowly" --output downloaded_files/result.mp4
 
+# Text-to-Video
+python3 src/gen_selenium.py --prompt "a cinematic shot of an astronaut on mars" --output downloaded_files/mars.mp4
+
 # Run with visible browser window
-python3 src/gen_selenium.py --image input.png --prompt "camera zooming in slowly" --headed
+python3 src/gen_selenium.py --prompt "ocean waves at sunset" --headed
 ```
 
 ---
@@ -192,10 +204,14 @@ A modern, responsive web application for interactive video generation:
 ![GUI Preview](docs/gui_preview.png)
 
 ### Features
+- **Dynamic Engine Selection & Auto-Fallback**:
+  - `🔄 Auto Fallback` *(Default)*: Runs the Direct API for maximum speed (~6.5s); if ZeroGPU quota limit is reached or the space is sleeping, it automatically fails over to the Selenium engine without interrupting generation.
+  - `⚡ Direct API`: Enforces direct Gradio/HF Space communication.
+  - `🌐 Selenium`: Routes tasks straight to the Perchance UC browser engine (unlimited generation, bypasses ZeroGPU quota).
 - **Visual Drag & Drop Upload**: Upload any PNG, JPG, or WebP image with automatic aspect ratio detection.
 - **Aspect Ratio Presets**: One-click selection for 16:9, 9:16, 1:1, and 4:3 resolutions (guaranteed divisible by 32).
 - **Inspiration Prompts**: Quick prompt chips for fast animation ideas.
-- **Real-Time SSE Progress Bar**: Live progress tracking displaying queue position, ETA, and step-by-step diffusion rendering.
+- **Real-Time SSE Progress Bar**: Live progress tracking displaying queue position, ETA, and step-by-step diffusion rendering (with automatic fallback status badges).
 - **Embedded Player**: Instant playback, loop, fullscreen, MP4 download, and link sharing.
 - **Recent Generations Gallery**: Local gallery displaying previously generated videos with timestamps, file sizes, and one-click deletion.
 - **Live Space Health Indicator**: Automatic polling indicating backend engine health (Online, Waking Up, Offline).
@@ -231,6 +247,19 @@ Key environment variables:
 | `DEFAULT_DURATION`| `2.0` | Target video duration in seconds (0.3s - 8.5s) |
 | `DEFAULT_WIDTH` | `704` | Default width (must be divisible by 32) |
 | `DEFAULT_HEIGHT`| `512` | Default height (must be divisible by 32) |
+| `SELENIUM_HEADLESS`| `true` | Run Selenium browser engine headlessly |
+| `BROWSER_BINARY_PATH`| `/usr/bin/brave-browser` | Path to browser binary for UC mode |
+
+---
+
+## 🧪 Automated Testing
+
+The project includes unit tests for multi-engine routing, direct execution, and automated fallback logic:
+
+```bash
+# Run unit tests
+python3 -m unittest discover tests
+```
 
 ---
 
@@ -243,6 +272,7 @@ Key architectural choices are documented in [`docs/adr/`](docs/adr/):
 - [**ADR-0003**](docs/adr/0003-cloudflare-challenge-bypass-via-direct-space-api.md): Cloudflare Challenge Bypass via Direct Space API Architecture
 - [**ADR-0004**](docs/adr/0004-dual-engine-architecture-api-and-selenium-fallback.md): Dual-Engine Architecture (Direct API Primary with SeleniumBase UC Fallback)
 - [**ADR-0005**](docs/adr/0005-gui-service-architecture-and-configuration.md): GUI Service Architecture and Environment Configuration
+- [**ADR-0006**](docs/adr/0006-dynamic-engine-selection-and-automated-zerogpu-fallback.md): Dynamic Engine Selection and Automated ZeroGPU Fallback
 
 ---
 

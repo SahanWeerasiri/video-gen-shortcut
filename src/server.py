@@ -34,6 +34,7 @@ if env_path.exists():
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ltx_video import LTXVideoClient, DEFAULT_BASE_URL, DEFAULT_NEGATIVE_PROMPT
+from gen_selenium import PerchanceLTXGenerator
 
 # Configuration
 GUI_HOST = os.getenv("GUI_HOST", "0.0.0.0")
@@ -110,6 +111,7 @@ def run_generation_task(
     randomize_seed: bool,
     guidance_scale: float,
     improve_texture: bool,
+    engine: str,
     loop: asyncio.AbstractEventLoop,
 ):
     """Worker function executing generation in background thread."""
@@ -142,9 +144,9 @@ def run_generation_task(
     out_filename = f"ltx_{timestamp}_{task_id[:6]}.mp4"
     output_dest = os.path.join(OUTPUT_DIR, out_filename)
 
-    try:
+    def run_direct_generation():
         if image_path and os.path.exists(image_path):
-            result = client.generate_image_to_video(
+            return client.generate_image_to_video(
                 image_path=image_path,
                 prompt=prompt,
                 negative_prompt=negative_prompt,
@@ -159,7 +161,7 @@ def run_generation_task(
                 progress_callback=progress_callback,
             )
         else:
-            result = client.generate_text_to_video(
+            return client.generate_text_to_video(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 duration=duration,
@@ -173,16 +175,91 @@ def run_generation_task(
                 progress_callback=progress_callback,
             )
 
+    def run_selenium_generation():
+        def selenium_cb(msg: str, data: Dict[str, Any]):
+            nonlocal loop, queue
+            if not queue:
+                return
+            pct = data.get("percent", 50)
+            payload = {
+                "type": "progress",
+                "index": pct,
+                "total": 100,
+                "percent": pct,
+                "engine": "selenium",
+            }
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(queue.put(payload), loop)
+            msg_text = data.get("message")
+            if msg_text and loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    queue.put({"type": "log", "message": f"[*] [Selenium] {msg_text}"}),
+                    loop,
+                )
+
+        if queue and loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                queue.put({"type": "log", "message": "[*] Starting Selenium browser engine (Perchance)..."}),
+                loop,
+            )
+
+        gen = PerchanceLTXGenerator()
+        try:
+            if image_path and os.path.exists(image_path):
+                gen.generate_image_to_video(
+                    image_path=image_path,
+                    prompt=prompt,
+                    output_path=output_dest,
+                    progress_callback=selenium_cb,
+                )
+            else:
+                gen.generate_text_to_video(
+                    prompt=prompt,
+                    output_path=output_dest,
+                    negative_prompt=negative_prompt,
+                    progress_callback=selenium_cb,
+                )
+        finally:
+            gen.close()
+
+    engine_used = engine
+    try:
+        if engine == "selenium":
+            run_selenium_generation()
+            engine_used = "selenium"
+        elif engine == "direct":
+            run_direct_generation()
+            engine_used = "direct"
+        else:  # "auto" mode: direct with automatic fallback to selenium
+            try:
+                run_direct_generation()
+                engine_used = "direct"
+            except Exception as direct_err:
+                fallback_msg = (
+                    f"Direct API unavailable ({direct_err}). "
+                    "Automatically falling back to Selenium browser engine..."
+                )
+                print(f"[!] {fallback_msg}")
+                if queue and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        queue.put({"type": "fallback", "message": fallback_msg}),
+                        loop,
+                    )
+                run_selenium_generation()
+                engine_used = "selenium_fallback"
+
         with tasks_lock:
             tasks[task_id]["status"] = "completed"
             tasks[task_id]["video_url"] = f"/downloaded_files/{out_filename}"
             tasks[task_id]["filename"] = out_filename
+            tasks[task_id]["engine_used"] = engine_used
 
         if queue and loop.is_running():
             completed_payload = {
                 "type": "completed",
                 "video_url": f"/downloaded_files/{out_filename}",
                 "filename": out_filename,
+                "engine_used": engine_used,
             }
             asyncio.run_coroutine_threadsafe(queue.put(completed_payload), loop)
 
@@ -215,6 +292,7 @@ async def start_generation(
     improve_texture: bool = Form(True),
     seed: int = Form(42),
     randomize_seed: bool = Form(True),
+    engine: str = Form("auto"),
     image: Optional[UploadFile] = File(None),
 ):
     """Initiates a generation job and returns a task_id."""
@@ -238,6 +316,7 @@ async def start_generation(
             "id": task_id,
             "status": "queued",
             "prompt": prompt,
+            "engine": engine,
             "has_image": bool(temp_image_path),
             "created_at": time.time(),
         }
@@ -257,13 +336,14 @@ async def start_generation(
             randomize_seed,
             guidance_scale,
             improve_texture,
+            engine,
             loop,
         ),
         daemon=True,
     )
     thread.start()
 
-    return {"task_id": task_id, "status": "queued"}
+    return {"task_id": task_id, "status": "queued", "engine": engine}
 
 
 @app.get("/api/progress/{task_id}")

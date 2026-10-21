@@ -11,6 +11,7 @@ Architecture Decision Records (ADRs) capture key technical and architectural dec
 | [ADR-0003](0003-cloudflare-challenge-bypass-via-direct-space-api.md) | Cloudflare Challenge Bypass via Direct Space API Architecture | `accepted` | 2026-10-21 |
 | [ADR-0004](0004-dual-engine-architecture-api-and-selenium-fallback.md) | Dual-Engine Architecture (Direct API Primary with SeleniumBase UC Fallback) | `accepted` | 2026-10-21 |
 | [ADR-0005](0005-gui-service-architecture-and-configuration.md) | GUI Service Architecture and Environment Configuration | `accepted` | 2026-10-21 |
+| [ADR-0006](0006-dynamic-engine-selection-and-automated-zerogpu-fallback.md) | Dynamic Engine Selection and Automated ZeroGPU Fallback | `accepted` | 2026-10-21 |
 
 ---
 

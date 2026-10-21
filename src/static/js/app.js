@@ -6,8 +6,12 @@
 document.addEventListener("DOMContentLoaded", () => {
   // State
   let currentMode = "image-to-video"; // 'image-to-video' | 'text-to-video'
+  let currentEngine = "auto"; // 'auto' | 'direct' | 'selenium'
   let selectedFile = null;
   let activeEventSource = null;
+
+  // DOM Elements - Engine Selector
+  const engineBtns = document.querySelectorAll(".engine-toggle-btn");
 
   // DOM Elements - Navigation & Modes
   const tabI2V = document.getElementById("tabImageToVideo");
@@ -71,6 +75,17 @@ document.addEventListener("DOMContentLoaded", () => {
     tabI2V.classList.remove("active");
     dropzone.style.display = "none";
     btnGenerate.querySelector(".btn-text").textContent = "Generate Text-to-Video";
+  });
+
+  // ─── Engine Mode Selection ──────────────────────────────────────────────────
+  engineBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      engineBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentEngine = btn.dataset.engine || "auto";
+      const name = btn.querySelector("span:not(.engine-btn-icon)")?.textContent.trim() || currentEngine;
+      showToast(`Engine switched to: ${name}`, "info");
+    });
   });
 
   // ─── File Upload & Drag-and-Drop ──────────────────────────────────────────
@@ -226,13 +241,15 @@ document.addEventListener("DOMContentLoaded", () => {
     formData.append("improve_texture", improveTextureCheckbox.checked);
     formData.append("seed", seedInput.value || 42);
     formData.append("randomize_seed", randomizeSeedCheckbox.checked);
+    formData.append("engine", currentEngine);
 
     if (currentMode === "image-to-video" && selectedFile) {
       formData.append("image", selectedFile);
     }
 
     try {
-      logMessage("[*] Submitting task to LTX-Video engine...");
+      const engineLabel = currentEngine === "selenium" ? "Selenium Browser" : (currentEngine === "direct" ? "Direct API" : "Auto (Direct + Fallback)");
+      logMessage(`[*] Submitting task to LTX-Video [${engineLabel}]...`);
       const resp = await fetch("/api/generate", {
         method: "POST",
         body: formData,
@@ -297,10 +314,21 @@ document.addEventListener("DOMContentLoaded", () => {
       progressBadge.textContent = `Step ${idx}/${total} (${percent}%)`;
       progressTitle.textContent = "Rendering Diffusion Steps";
       logMessage(`[*] Rendering step ${idx}/${total} (${percent}%)`);
+    } else if (type === "fallback") {
+      progressTitle.textContent = "Switching to Selenium Fallback";
+      progressBadge.textContent = "Fallback Active";
+      progressBadge.classList.add("fallback");
+      progressBarFill.style.width = "25%";
+      logMessage(`[!] ${event.message}`, "log-fallback");
+      showToast("Direct API unavailable — falling back to Selenium browser engine", "info");
+    } else if (type === "log") {
+      logMessage(event.message);
     } else if (type === "completed") {
       progressBarFill.style.width = "100%";
+      progressBadge.classList.remove("fallback");
       progressBadge.textContent = "100% Completed";
-      logMessage(`[+] Video generated successfully: ${event.filename}`);
+      const engineTag = event.engine_used ? ` [${event.engine_used}]` : "";
+      logMessage(`[+] Video generated successfully${engineTag}: ${event.filename}`);
       showToast("Video generated successfully!", "success");
 
       if (activeEventSource) {
@@ -329,6 +357,7 @@ document.addEventListener("DOMContentLoaded", () => {
       videoWrapper.style.display = "none";
       progressContainer.style.display = "flex";
       progressBarFill.style.width = "2%";
+      progressBadge.classList.remove("fallback");
       progressLogs.innerHTML = "";
     } else {
       btnGenerate.disabled = false;
@@ -340,7 +369,7 @@ document.addEventListener("DOMContentLoaded", () => {
     videoWrapper.style.display = "flex";
     videoPlayer.src = url;
     videoPlayer.load();
-    videoPlayer.play().catch(() => {});
+    videoPlayer.play().catch(() => { });
 
     btnDownload.onclick = () => {
       const a = document.createElement("a");
@@ -359,13 +388,13 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  function logMessage(msg) {
+  function logMessage(msg, className = "") {
     const line = document.createElement("div");
+    if (className) line.className = className;
     line.textContent = msg;
     progressLogs.appendChild(line);
     progressLogs.scrollTop = progressLogs.scrollHeight;
   }
-
   // ─── Video Gallery ─────────────────────────────────────────────────────────
   async function loadGallery() {
     try {
