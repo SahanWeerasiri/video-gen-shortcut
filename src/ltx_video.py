@@ -12,9 +12,22 @@ import time
 import string
 import random
 import mimetypes
-import argparse
+from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, Callable
 import requests
+
+# Load local environment if .env file exists
+env_path = Path(__file__).resolve().parent.parent / ".env"
+if env_path.exists():
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                k = key.strip()
+                v = val.strip().strip('"').strip("'")
+                if k and (k not in os.environ or not os.environ[k]):
+                    os.environ[k] = v
 
 DEFAULT_BASE_URL = os.getenv("LTX_BACKEND_URL", "https://lightricks-ltx-video-distilled.hf.space")
 DEFAULT_NEGATIVE_PROMPT = os.getenv(
@@ -37,7 +50,7 @@ class LTXVideoClient:
             "Origin": self.base_url,
             "Referer": f"{self.base_url}/",
         }
-        hf_token = os.getenv("HF_TOKEN")
+        hf_token = (os.getenv("HF_TOKEN") or "").strip()
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
         self.session.headers.update(headers)
@@ -352,7 +365,16 @@ class LTXVideoClient:
                         print(f"[*] Generating: {index}/{length} {unit}")
                 elif msg == "process_completed":
                     if not event.get("success", False):
-                        raise RuntimeError(f"Generation failed on server: {event}")
+                        output_info = event.get("output", {})
+                        err_text = output_info.get("error") if isinstance(output_info, dict) else None
+                        title = event.get("title") or (output_info.get("title") if isinstance(output_info, dict) else None)
+                        if err_text:
+                            err_desc = f"{title}: {err_text}" if title and title != err_text else err_text
+                        elif title:
+                            err_desc = title
+                        else:
+                            err_desc = str(event)
+                        raise RuntimeError(f"Generation failed on server: {err_desc}")
 
                     out_data = event.get("output", {}).get("data", [])
                     if not out_data or "video" not in out_data[0]:
