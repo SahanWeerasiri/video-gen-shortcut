@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 # Ensure src is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from server import run_generation_task, tasks, tasks_lock, task_events
+from server import app, run_generation_task, tasks, tasks_lock, task_events
 
 
 class TestEngineFallback(unittest.TestCase):
@@ -149,6 +149,19 @@ class TestEngineFallback(unittest.TestCase):
         mock_gen_instance.generate_text_to_video.assert_called_once()
         mock_gen_instance.close.assert_called_once()
 
+    def test_cors_configuration_is_secure(self):
+        """Verifies that CORS middleware does not permit wildcard '*' origins."""
+        cors_middlewares = [
+            m for m in app.user_middleware
+            if "CORSMiddleware" in str(m.cls)
+        ]
+        self.assertTrue(len(cors_middlewares) > 0, "CORSMiddleware should be installed on app")
+        for middleware in cors_middlewares:
+            allowed_origins = middleware.kwargs.get("allow_origins", [])
+            self.assertNotIn("*", allowed_origins, "Wildcard '*' must not be allowed in CORS origins")
+            self.assertTrue(len(allowed_origins) > 0, "Explicit allowed origins should be configured")
+
 
 if __name__ == "__main__":
     unittest.main()
+

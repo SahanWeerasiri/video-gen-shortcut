@@ -44,11 +44,18 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = FastAPI(title="LTX-Video Studio", description="Web GUI for LTX-Video Generation")
 
+# Allowed CORS origins (restrict to local GUI addresses or explicitly defined origins)
+raw_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    f"http://localhost:{GUI_PORT},http://127.0.0.1:{GUI_PORT},http://0.0.0.0:{GUI_PORT}"
+)
+allowed_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

@@ -300,6 +300,7 @@ Key environment variables:
 |---|---|---|
 | `GUI_HOST` | `0.0.0.0` | Network interface for GUI server binding |
 | `GUI_PORT` | `7860` | Web port for the GUI interface (e.g. 7860 or 8080) |
+| `ALLOWED_ORIGINS` | `http://localhost:7860,...` | Allowed CORS origins for API requests |
 | `LTX_BACKEND_URL` | `https://lightricks-ltx-video-distilled.hf.space` | Hugging Face Space endpoint |
 | `HF_TOKEN` | *(optional)* | Hugging Face user token for elevated rate limits |
 | `OUTPUT_DIR` | `./downloaded_files` | Directory where generated MP4 videos are saved |
