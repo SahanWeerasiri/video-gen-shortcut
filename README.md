@@ -229,6 +229,65 @@ Open **[http://localhost:7860](http://localhost:7860)** in your browser.
 
 ---
 
+## 🔑 Hugging Face Tokens & ZeroGPU Quotas (Free vs. Pro)
+
+The direct API and underlying Hugging Face Space (`lightricks-ltx-video-distilled`) run on Hugging Face **ZeroGPU** (dynamic NVIDIA A100/H100 clusters).
+
+### 1. What You Get with a Free Hugging Face Token (`HF_TOKEN`)
+
+Creating a Hugging Face account is **100% free** and takes less than a minute (no credit card required). Setting a free token unlocks critical capabilities compared to anonymous access:
+
+* **Dedicated Personal Compute Quota**: Anonymous requests share an IP-based compute pool. If your IP address or local network was recently active, you may encounter:
+  ```text
+  ZeroGPU quota exceeded: You have exceeded your ZeroGPU quota (120s requested vs. -60s left).
+  Authenticate with a Hugging Face token for more quota - https://huggingface.co/settings/tokens
+  ```
+  Adding your free `HF_TOKEN` assigns a dedicated rolling quota tied directly to your individual account ID rather than a shared IP address.
+* **~15–40 Generations per Rolling Cycle**: ZeroGPU measures *active GPU execution seconds*, not connection time. Because LTX-Video Distilled runs in only ~6–10 seconds of GPU compute per generation, a standard free account rolling window (~120s–300s) allows **15 to 40 complete video generations** before needing a brief cooldown.
+* **Higher Queue Priority**: During periods of high traffic, authenticated user requests take precedence in the Gradio task queue (`/gradio_api/queue/join`) over unauthenticated guest traffic.
+* **Space Wake-Up Reliability**: If the community space is asleep, authenticated requests reliably wake it up without connection drops.
+* **Immunity to VPN / NAT / Proxy IP Clashes**: Avoid quota starvation caused by multiple users, offices, or VPN servers sharing the same public IP.
+* **Full Hub & Serverless API Access**: In addition to ZeroGPU Spaces, your free token grants access to Hugging Face's Serverless Inference API for thousands of open-source vision, audio, and language models.
+
+---
+
+### 2. Comparison Matrix: Anonymous vs. Free Token vs. Pro
+
+| Feature | Anonymous (No Token) | Free Account Token (`HF_TOKEN`) | Hugging Face PRO ($9/mo) |
+|---|---|---|---|
+| **Cost** | Free ($0) | **Free ($0, No credit card)** | $9 / month |
+| **Quota Identity** | Shared Public IP Address | **Personal User Account** | Personal User Account |
+| **ZeroGPU Compute Window** | Shared IP pool (~60s) | **Dedicated rolling window (~120s–300s)** | **5x–10x multiplier (~1000s+)** |
+| **Est. Generations / Cooldown** | 0–5 (often depleted by IP) | **~15–40 video generations** | 100+ video generations |
+| **Queue Priority** | Guest (Lowest) | **Standard Authenticated** | Highest VIP Priority |
+| **Direct API Reliability** | Frequent quota lockouts | **High reliability** | Maximum reliability |
+| **Engine Behavior in Studio** | Falls back to Selenium | **Fast Direct API (~6.5s)** | **Fast Direct API (~6.5s)** |
+
+> [!TIP]
+> **Automatic Engine Fallback**: If you do not configure a token or temporarily exhaust your personal quota, our studio's `🔄 Auto Fallback` engine detects the ZeroGPU quota limit and immediately shifts generation to the headless Selenium browser engine without interrupting your workflow.
+
+---
+
+### 3. Step-by-Step: How to Generate & Configure Your Free Token
+
+1. **Sign Up / Log In**: Visit [huggingface.co/join](https://huggingface.co/join) (free account).
+2. **Access Token Settings**: Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+3. **Create Token**: Click **"Create new token"** (or **"+ New token"**).
+   * **Token Type**: Select **"Fine-grained"** (or classic **"Read"**).
+   * **Permissions**: Ensure **"Read access to contents of all public gated repos"** is checked (or default `read` scope). No write permissions are required.
+4. **Copy Token**: Copy the generated string (starts with `hf_...`).
+5. **Add to `.env`**: Open your `.env` file and paste the token:
+   ```bash
+   HF_TOKEN=hf_YourActualTokenHere
+   ```
+6. **Restart GUI / Run CLI**:
+   ```bash
+   python src/server.py
+   ```
+   All requests will now carry the `Authorization: Bearer hf_...` header with personal ZeroGPU allocation.
+
+---
+
 ## ⚙️ Environment Configuration (`.env`)
 
 For running the GUI interface and configuring network ports, copy the template:
