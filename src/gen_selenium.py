@@ -52,15 +52,95 @@ class PerchanceLTXGenerator:
 
         print("[+] Page loaded successfully: " + self.driver.title)
 
-    def switch_to_gradio_frame(self):
-        """Switches from top-level down into the nested Gradio generation iframe."""
-        self.driver.switch_to.default_content()
-        # 1. Outer Perchance iframe
-        outer_iframe = self.driver.find_element("id", "outputIframeEl")
-        self.driver.switch_to.frame(outer_iframe)
-        # 2. Inner Gradio iframe
-        gen_iframe = self.driver.find_element("id", "genFrame")
-        self.driver.switch_to.frame(gen_iframe)
+    def switch_to_gradio_frame(self, max_wait: float = 15.0) -> bool:
+        """
+        Robustly navigates from default content into the nested Gradio generation iframe:
+        top -> #outputIframeEl -> #genFrame.
+        Handles dynamic iframe recreation and retries with backoff.
+        """
+        start = time.time()
+        while time.time() - start < max_wait:
+            try:
+                self.driver.switch_to.default_content()
+
+                # 1. Outer Perchance iframe
+                outers = self.driver.find_elements("id", "outputIframeEl")
+                if not outers:
+                    outers = self.driver.find_elements("css selector", "iframe#outputIframeEl, iframe[src*='perchance']")
+                if not outers:
+                    time.sleep(0.4)
+                    continue
+                self.driver.switch_to.frame(outers[0])
+
+                # 2. Inner Gradio iframe
+                gens = self.driver.find_elements("id", "genFrame")
+                if not gens:
+                    gens = self.driver.find_elements("css selector", "iframe#genFrame, iframe[src*='hf.space']")
+                if not gens:
+                    time.sleep(0.4)
+                    continue
+                self.driver.switch_to.frame(gens[0])
+                return True
+            except Exception:
+                time.sleep(0.4)
+
+        raise TimeoutError(f"Could not switch to nested Gradio iframe within {max_wait}s.")
+
+    def _find_element(self, candidates: list, timeout: float = 15.0, allow_hidden: bool = False):
+        """
+        Locates an element using a prioritized list of strategies:
+        (by, selector). If not found, periodically re-synchronizes the nested iframe
+        context to guard against frame detachment or dynamic re-renders.
+        Supports hidden elements (e.g. Gradio input[type='file']).
+        """
+        start = time.time()
+        last_switch = time.time()
+
+        while time.time() - start < timeout:
+            for by, selector in candidates:
+                try:
+                    elems = self.driver.find_elements(by, selector)
+                    for el in elems:
+                        # Gradio file inputs are hidden under visual dropzone wrappers
+                        is_file = (by in ("xpath", "css selector") and "file" in selector) or (el.get_attribute("type") == "file")
+                        if allow_hidden or is_file or el.is_displayed():
+                            return el
+                except Exception:
+                    continue
+
+            # Periodically re-ensure we are attached to the inner Gradio iframe
+            if time.time() - last_switch >= 2.0:
+                try:
+                    self.switch_to_gradio_frame(max_wait=3.0)
+                except Exception:
+                    pass
+                last_switch = time.time()
+
+            time.sleep(0.3)
+
+        # JavaScript fallback within the current frame context
+        for by, selector in candidates:
+            if allow_hidden or "file" in selector:
+                try:
+                    inp = self.driver.execute_script("return document.querySelector('input[type=\"file\"]');")
+                    if inp:
+                        return inp
+                except Exception:
+                    pass
+            elif "Generate" in selector or "component-10" in selector or "component-17" in selector:
+                try:
+                    btn = self.driver.execute_script(
+                        "return Array.from(document.querySelectorAll('button')).find("
+                        "  b => b.textContent && b.textContent.includes('Generate') && b.offsetParent !== null"
+                        ");"
+                    )
+                    if btn:
+                        return btn
+                except Exception:
+                    pass
+
+        tried = ", ".join(f"[{b}: '{s}']" for b, s in candidates)
+        raise RuntimeError(f"Unable to locate element after {timeout:.1f}s across strategies: {tried}")
 
     def generate_image_to_video(
         self,
@@ -84,17 +164,29 @@ class PerchanceLTXGenerator:
 
         # 1. Ensure 'image-to-video' tab is selected
         try:
-            tab_btn = self.driver.find_element("xpath", "//button[contains(text(), 'image-to-video')]")
+            tab_btn = self._find_element([
+                ("id", "component-6-button"),
+                ("xpath", "//*[@id='component-6-button']"),
+                ("xpath", "//button[contains(normalize-space(.), 'image-to-video')]"),
+                ("css selector", "button[id*='component-6']"),
+            ], timeout=5.0)
             tab_btn.click()
             time.sleep(1)
         except Exception:
             pass
 
-        # 2. Upload Image via file input
+        # Ensure we remain in the Gradio frame before uploading
+        self.switch_to_gradio_frame()
+
+        # 2. Upload Image via file input (allow hidden file inputs)
         print(f"[*] Uploading image: {image_path}")
         if progress_callback:
             progress_callback("progress", {"message": "Uploading image to Perchance...", "percent": 25})
-        file_input = self.driver.find_element("xpath", "//input[@type='file']")
+        file_input = self._find_element([
+            ("xpath", "//input[@type='file']"),
+            ("css selector", "input[type='file']"),
+            ("xpath", "//input[@data-testid='file-upload']"),
+        ], timeout=15.0, allow_hidden=True)
         file_input.send_keys(image_path)
         print("[+] Image uploaded to UI. Waiting for thumbnail...")
         time.sleep(3)
@@ -117,14 +209,24 @@ class PerchanceLTXGenerator:
             target_textarea.clear()
             target_textarea.send_keys(prompt)
 
-        # 4. Click Generate button
+        # 4. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
         print("[*] Clicking 'Generate Image-to-Video' button...")
         if progress_callback:
             progress_callback("progress", {"message": "Submitted to Perchance GPU. Rendering video...", "percent": 35})
-        gen_btn = self.driver.find_element(
-            "xpath", "//button[contains(text(), 'Generate Image-to-Video') or contains(text(), 'Generate')]"
-        )
-        gen_btn.click()
+        gen_btn = self._find_element([
+            ("id", "component-10"),
+            ("xpath", "//*[@id='component-10']"),
+            ("xpath", "/html/body/div/div/main/div/div/div/div[4]/div/div/div[2]/div/button"),
+            ("xpath", "//button[contains(normalize-space(.), 'Generate Image-to-Video')]"),
+            ("xpath", "//button[contains(@class, 'primary') and contains(normalize-space(.), 'Generate')]"),
+            ("css selector", "button#component-10"),
+            ("css selector", "button.primary.lg"),
+        ], timeout=15.0)
+        
+        try:
+            gen_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", gen_btn)
         print("[+] Generation started! Waiting for output video...")
 
         # 5. Poll for generated video element
@@ -154,7 +256,12 @@ class PerchanceLTXGenerator:
 
         # 1. Switch to 'text-to-video' tab
         try:
-            tab_btn = self.driver.find_element("xpath", "//button[contains(text(), 'text-to-video')]")
+            tab_btn = self._find_element([
+                ("id", "component-13-button"),
+                ("xpath", "//*[@id='component-13-button']"),
+                ("xpath", "//button[contains(normalize-space(.), 'text-to-video')]"),
+                ("css selector", "button[id*='component-13']"),
+            ], timeout=5.0)
             tab_btn.click()
             time.sleep(1)
         except Exception:
@@ -178,14 +285,24 @@ class PerchanceLTXGenerator:
             target_textarea.clear()
             target_textarea.send_keys(prompt)
 
-        # 3. Click Generate button
+        # 3. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
         print("[*] Clicking 'Generate Text-to-Video' button...")
         if progress_callback:
             progress_callback("progress", {"message": "Submitted to Perchance GPU. Rendering video...", "percent": 35})
-        gen_btn = self.driver.find_element(
-            "xpath", "//button[contains(text(), 'Generate Text-to-Video') or contains(text(), 'Generate')]"
-        )
-        gen_btn.click()
+        gen_btn = self._find_element([
+            ("id", "component-17"),
+            ("xpath", "//*[@id='component-17']"),
+            ("xpath", "/html/body/div/div/main/div/div/div/div[5]/div/div/div[2]/div/button"),
+            ("xpath", "//button[contains(normalize-space(.), 'Generate Text-to-Video')]"),
+            ("xpath", "//button[contains(@class, 'primary') and contains(normalize-space(.), 'Generate')]"),
+            ("css selector", "button#component-17"),
+            ("css selector", "button.primary.lg"),
+        ], timeout=15.0)
+
+        try:
+            gen_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", gen_btn)
         print("[+] Generation started! Waiting for output video...")
 
         # 4. Poll for generated video element
@@ -218,10 +335,34 @@ class PerchanceLTXGenerator:
                 last_report = elapsed
 
             self.switch_to_gradio_frame()
+
+            # 1. Immediately fail fast if Gradio / ZeroGPU error modal or toast appears
+            toasts = self.driver.find_elements(
+                "css selector",
+                ".toast-wrap, [class*='toast'], .error, [class*='error']"
+            )
+            for t in toasts:
+                try:
+                    txt = t.text.strip()
+                    if txt and any(term in txt.lower() for term in ("zerogpu", "quota exceeded", "exceeded", "error", "traceback")):
+                        cleaned = txt.replace("×", "").replace("\n", " ").strip()
+                        raise RuntimeError(f"Perchance/Gradio error on server: {cleaned}")
+                except Exception as e:
+                    if "Perchance/Gradio error on server" in str(e):
+                        raise
+
+            # 2. Check for video element with MP4 or blob stream
             videos = self.driver.find_elements("tag name", "video")
             for v in videos:
                 src = v.get_attribute("src") or v.get_attribute("currentSrc")
-                if src and ".mp4" in src:
+                if not src:
+                    # Check child <source> elements
+                    for s in v.find_elements("tag name", "source"):
+                        s_src = s.get_attribute("src")
+                        if s_src:
+                            src = s_src
+                            break
+                if src and any(ext in src for ext in (".mp4", "blob:", "/gradio_api/file=")):
                     return src
             time.sleep(2)
             sys.stdout.write(".")
