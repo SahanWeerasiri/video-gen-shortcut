@@ -1,0 +1,84 @@
+PRE-PRO FINAL: ltx-video $preprocess = {import:pre-pro}
+
+$meta
+  
+  title = 🛤️ Track Imports Plugin
+  description = A literal global counter! Can be accessed cross-gen and anywhere! (Resets after 7 Days)
+
+$output(name,xx3) =>
+  if(!document.body.querySelector('script#firebase-live-track-imports-counter-script')) {
+    script = document.createElement('script')
+    script.type = 'module'
+    script.id = 'firebase-live-track-imports-counter-script'
+    script.textContent = `
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+      import { getDatabase, ref, get, set, update, increment, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
+    
+      const _0x12f826=_0x42b8;function _0x1a78(){const _0x3d2f4e=['42bmpqAl','AIzaSyD85k','30UAzKMzr9','4373937wifOKW','1:59702180','ity-tracke','1718576DTIsNY','live-activ','2212820cjIUnX','0ce12b2cab','BHq3XUTn0','eio.com','f050c62ce5','1859:web:d','r.firebase','https://li','PjpOnHeWft','y-tracker-','4XNTegT','ve-activit','db.firebas','10MVJzkR','app.com','897706ZUNEeH','410311CrOJHv','storage.ap','1219182DFwBVr','439368XgBsvw','G-RBK2J4K0','5970218018','default-rt'];_0x1a78=function(){return _0x3d2f4e;};return _0x1a78();}(function(_0x2b7c98,_0xbe6c1){const _0x5412d0=_0x42b8,_0x494e45=_0x2b7c98();while(!![]){try{const _0x3f2d4a=-parseInt(_0x5412d0(0x17f))/(-0x1248+0x1a31+0xb8*-0xb)+-parseInt(_0x5412d0(0x17e))/(0x580*0x7+0x3d*-0x46+-0x574*0x4)+-parseInt(_0x5412d0(0x181))/(-0x20e1+0x840+-0x1*-0x18a4)*(-parseInt(_0x5412d0(0x179))/(0x11e9+0xcb9+0x1*-0x1e9e))+parseInt(_0x5412d0(0x18e))/(-0x19bd+0x1*0x19d7+-0x3*0x7)+parseInt(_0x5412d0(0x182))/(-0x2*0x657+-0x406+0x10ba)*(-parseInt(_0x5412d0(0x186))/(0x2ba*0xe+0x2b*0xe4+-0x1*0x4c71))+parseInt(_0x5412d0(0x18c))/(0x183b+-0x621+-0x1212)+parseInt(_0x5412d0(0x189))/(-0x72e+0x1*-0x1bc9+-0x50*-0x70)*(parseInt(_0x5412d0(0x17c))/(-0x1752*0x1+-0x83*0x22+0x28c2));if(_0x3f2d4a===_0xbe6c1)break;else _0x494e45['push'](_0x494e45['shift']());}catch(_0x427618){_0x494e45['push'](_0x494e45['shift']());}}}(_0x1a78,0x190a7+0x3*-0x12b6e+0x5c70c));function _0x42b8(_0x5277e0,_0x36935d){const _0x264a13=_0x1a78();return _0x42b8=function(_0xbe139,_0x1008b9){_0xbe139=_0xbe139-(0x256c+-0xd7*-0x19+-0x38f4);let _0x8c1640=_0x264a13[_0xbe139];return _0x8c1640;},_0x42b8(_0x5277e0,_0x36935d);}const firebaseConfig={'apiKey':_0x12f826(0x187)+_0x12f826(0x188)+_0x12f826(0x177)+_0x12f826(0x190),'authDomain':_0x12f826(0x18d)+_0x12f826(0x18b)+_0x12f826(0x194)+_0x12f826(0x17d),'databaseURL':_0x12f826(0x195)+_0x12f826(0x17a)+_0x12f826(0x178)+_0x12f826(0x185)+_0x12f826(0x17b)+_0x12f826(0x191),'projectId':_0x12f826(0x18d)+_0x12f826(0x18b)+'r','storageBucket':_0x12f826(0x18d)+_0x12f826(0x18b)+_0x12f826(0x194)+_0x12f826(0x180)+'p','messagingSenderId':_0x12f826(0x184)+'59','appId':_0x12f826(0x18a)+_0x12f826(0x193)+_0x12f826(0x192)+_0x12f826(0x18f)+'6','measurementId':_0x12f826(0x183)+'GS'};
+      
+      const app = initializeApp(firebaseConfig);
+      const database = getDatabase(app);
+    
+      const currentGlobalCount = document.getElementById("track-imports-counter");
+    
+      async function initializeCounter(name, generatorName) {
+        if (!name || !generatorName) {
+          console.error("🔴 'name' or 'generatorName' is not defined or invalid.");
+          return;
+        }
+    
+        const generatorPath = \`counter/imports/${name}/generators/\${generatorName}\`;
+        //alert(generatorPath);
+        const generatorRef = ref(database, generatorPath);
+        const countRef = ref(database, \`counter/imports/${name}/count\`);
+    
+        try {
+          // Check if the generator exists
+          const generatorSnapshot = await get(generatorRef);
+          if (!generatorSnapshot.exists()) {
+            await set(generatorRef, { count: 1 });
+            await update(countRef, { count: increment(1) });
+            console.log(\`✅ Initialized generator: \${generatorName}\`);
+          } else {
+            console.log(\`🔵 Generator \${generatorName} already exists. No action taken.\`);
+          }
+        } catch (error) {
+          console.error("🔴 Error initializing counter:", error);
+        }
+      }
+    
+      const name = "${name}";
+      const generatorName = window.generatorName;
+    
+      initializeCounter(name, generatorName);
+
+      const liveCount = ref(database, \`counter/imports/${name}/count\`);
+      
+      onValue(liveCount, (snapshot) => {
+        const liveCountData = snapshot.val();
+        const activeCountData = liveCountData?.count ?? 0;
+    
+        if (liveCountData === null) {
+          update(liveCount, { count: 0 }).catch((error) => {
+            console.error("🟠 Failed to initialize count:", error);
+          });
+        }
+    
+        if (currentGlobalCount) {
+          currentGlobalCount.textContent = activeCountData;
+        } else {
+          console.error("🔴 Element with ID 'track-imports-counter' not found.");
+        }
+      });`
+    document.body.appendChild(script)
+  }
+  if(!document.body.querySelector("#track-imports-counter") && xx3) return `<span id="track-imports-counter">🔄</span>`
+  return ``
+
+plf = [d('plugin-framework')]
+
+
+d = {import:dynamic-import-plugin}
+BRSTRING = <br>
+_br = <br>
+_uuid = [(() => crypto.randomUUID())()]
