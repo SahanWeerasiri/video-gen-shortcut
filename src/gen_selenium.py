@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import argparse
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, Set
 import requests
 from seleniumbase import Driver
 
@@ -142,14 +142,148 @@ class PerchanceLTXGenerator:
         tried = ", ".join(f"[{b}: '{s}']" for b, s in candidates)
         raise RuntimeError(f"Unable to locate element after {timeout:.1f}s across strategies: {tried}")
 
+    def _configure_parameters(
+        self,
+        duration: float = 2.0,
+        negative_prompt: str = "",
+        width: Optional[int] = 704,
+        height: Optional[int] = 512,
+        seed: int = 42,
+        randomize_seed: bool = True,
+        guidance_scale: float = 1.0,
+        improve_texture: bool = True,
+        progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Sets Duration, Dimensions (width/height), Negative Prompt, Seed, and Randomize Seed
+        inside the Gradio DOM and triggers input/change events to sync Svelte state.
+        """
+        if progress_callback:
+            progress_callback(
+                "progress",
+                {
+                    "message": f"Configuring parameters (duration={duration}s, {width}x{height}, seed={seed})...",
+                    "percent": 32,
+                },
+            )
+
+        script = """
+        const params = arguments[0];
+        const res = {};
+
+        function setSlider(id, val) {
+            const comp = document.getElementById(id);
+            if (!comp) return false;
+            const numInput = comp.querySelector('input[type="number"]');
+            const rangeInput = comp.querySelector('input[type="range"]');
+            if (numInput) {
+                numInput.value = val;
+                numInput.dispatchEvent(new Event('input', { bubbles: true }));
+                numInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (rangeInput) {
+                rangeInput.value = val;
+                rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                rangeInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            return true;
+        }
+
+        // 1. Duration (component-27)
+        if (params.duration !== undefined && params.duration !== null) {
+            res.duration = setSlider('component-27', params.duration);
+        }
+
+        // 2. Dimensions (Width: component-45, Height: component-44)
+        if (params.width) {
+            res.width = setSlider('component-45', params.width);
+        }
+        if (params.height) {
+            res.height = setSlider('component-44', params.height);
+        }
+
+        // 3. Negative Prompt (component-35)
+        if (params.negative_prompt) {
+            const negComp = document.getElementById('component-35');
+            if (negComp) {
+                const ta = negComp.querySelector('textarea');
+                if (ta) {
+                    ta.value = params.negative_prompt;
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    res.negative_prompt = true;
+                }
+            }
+        }
+
+        // 4. Seed (component-37)
+        if (params.seed !== undefined && params.seed !== null) {
+            const seedComp = document.getElementById('component-37');
+            if (seedComp) {
+                const inp = seedComp.querySelector('input[type="number"]');
+                if (inp) {
+                    inp.value = params.seed;
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    res.seed = true;
+                }
+            }
+        }
+
+        // 5. Randomize Seed (component-38)
+        if (params.randomize_seed !== undefined) {
+            const randComp = document.getElementById('component-38');
+            if (randComp) {
+                const cb = randComp.querySelector('input[type="checkbox"]');
+                if (cb && cb.checked !== params.randomize_seed) {
+                    cb.click();
+                    res.randomize_seed = cb.checked;
+                }
+            }
+        }
+
+        // 6. Guidance Scale (component-41, if present)
+        if (params.guidance_scale) {
+            res.guidance_scale = setSlider('component-41', params.guidance_scale);
+        }
+
+        return res;
+        """
+        try:
+            res = self.driver.execute_script(
+                script,
+                {
+                    "duration": float(duration) if duration else 2.0,
+                    "negative_prompt": negative_prompt or "",
+                    "width": int(width) if width else 704,
+                    "height": int(height) if height else 512,
+                    "seed": int(seed),
+                    "randomize_seed": bool(randomize_seed),
+                    "guidance_scale": float(guidance_scale) if guidance_scale else 1.0,
+                },
+            )
+            print(f"[*] [Selenium] Configured parameters: duration={duration}s, resolution={width}x{height}, seed={seed} (res={res})")
+            return res or {}
+        except Exception as e:
+            print(f"[!] [Selenium] Warning: could not set all parameters: {e}")
+            return {}
+
     def generate_image_to_video(
         self,
         image_path: str,
         prompt: str,
         output_path: str = "output.mp4",
+        negative_prompt: str = "",
+        duration: float = 2.0,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        seed: int = 42,
+        randomize_seed: bool = True,
+        guidance_scale: float = 1.0,
+        improve_texture: bool = True,
         progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
-        """Uploads an image, inputs prompt, triggers generation, and downloads the video."""
+        """Uploads an image, configures settings, inputs prompt, triggers generation, and downloads video."""
         if not os.path.isabs(image_path):
             image_path = os.path.abspath(image_path)
 
@@ -191,28 +325,50 @@ class PerchanceLTXGenerator:
         print("[+] Image uploaded to UI. Waiting for thumbnail...")
         time.sleep(3)
 
-        # 3. Enter Prompt
+        # 3. Enter Prompt (target #component-9 first)
         print(f"[*] Entering prompt: {prompt}")
         if progress_callback:
             progress_callback("progress", {"message": "Entering animation prompt...", "percent": 30})
-        textareas = self.driver.find_elements("tag name", "textarea")
         target_textarea = None
-        for ta in textareas:
-            if ta.is_displayed():
-                target_textarea = ta
-                break
-
-        if not target_textarea and textareas:
-            target_textarea = textareas[0]
+        try:
+            target_textarea = self.driver.find_element("css selector", "#component-9 textarea")
+        except Exception:
+            textareas = self.driver.find_elements("tag name", "textarea")
+            for ta in textareas:
+                if ta.is_displayed():
+                    target_textarea = ta
+                    break
+            if not target_textarea and textareas:
+                target_textarea = textareas[0]
 
         if target_textarea:
             target_textarea.clear()
             target_textarea.send_keys(prompt)
 
-        # 4. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
+        # 4. Configure Parameters (duration, dimensions, seed, negative prompt)
+        self._configure_parameters(
+            duration=duration,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            seed=seed,
+            randomize_seed=randomize_seed,
+            guidance_scale=guidance_scale,
+            improve_texture=improve_texture,
+            progress_callback=progress_callback,
+        )
+
+        # 5. Capture pre-existing video srcs
+        initial_srcs = set()
+        for v in self.driver.find_elements("tag name", "video"):
+            src = v.get_attribute("src") or v.get_attribute("currentSrc")
+            if src:
+                initial_srcs.add(src)
+
+        # 6. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
         print("[*] Clicking 'Generate Image-to-Video' button...")
         if progress_callback:
-            progress_callback("progress", {"message": "Submitted to Perchance GPU. Rendering video...", "percent": 35})
+            progress_callback("progress", {"message": f"Submitted to Perchance GPU. Rendering video ({duration}s)...", "percent": 35})
         gen_btn = self._find_element([
             ("id", "component-10"),
             ("xpath", "//*[@id='component-10']"),
@@ -222,18 +378,19 @@ class PerchanceLTXGenerator:
             ("css selector", "button#component-10"),
             ("css selector", "button.primary.lg"),
         ], timeout=15.0)
-        
+
         try:
             gen_btn.click()
         except Exception:
             self.driver.execute_script("arguments[0].click();", gen_btn)
         print("[+] Generation started! Waiting for output video...")
 
-        # 5. Poll for generated video element
-        video_url = self._wait_for_video(progress_callback=progress_callback)
+        # 7. Poll for generated video element with dynamic timeout
+        render_timeout = max(240, int(float(duration) * 35))
+        video_url = self._wait_for_video(timeout=render_timeout, initial_srcs=initial_srcs, progress_callback=progress_callback)
         print(f"[+] Found generated video URL: {video_url}")
 
-        # 6. Download Video
+        # 8. Download Video
         if progress_callback:
             progress_callback("progress", {"message": "Downloading finished MP4...", "percent": 95})
         self._download_video(video_url, output_path)
@@ -245,9 +402,16 @@ class PerchanceLTXGenerator:
         prompt: str,
         output_path: str = "output.mp4",
         negative_prompt: str = "",
+        duration: float = 2.0,
+        width: Optional[int] = 704,
+        height: Optional[int] = 512,
+        seed: int = 42,
+        randomize_seed: bool = True,
+        guidance_scale: float = 1.0,
+        improve_texture: bool = True,
         progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
-        """Inputs prompt, triggers text-to-video generation, and downloads the video."""
+        """Configures settings, inputs prompt, triggers text-to-video generation, and downloads video."""
         if progress_callback:
             progress_callback("progress", {"message": "Switching to Text-to-Video tab in browser...", "percent": 20})
 
@@ -267,28 +431,50 @@ class PerchanceLTXGenerator:
         except Exception:
             pass
 
-        # 2. Enter Prompt
+        # 2. Enter Prompt (target #component-16 first)
         print(f"[*] Entering prompt: {prompt}")
         if progress_callback:
             progress_callback("progress", {"message": "Entering generation prompt...", "percent": 30})
-        textareas = self.driver.find_elements("tag name", "textarea")
         target_textarea = None
-        for ta in textareas:
-            if ta.is_displayed():
-                target_textarea = ta
-                break
-
-        if not target_textarea and textareas:
-            target_textarea = textareas[0]
+        try:
+            target_textarea = self.driver.find_element("css selector", "#component-16 textarea")
+        except Exception:
+            textareas = self.driver.find_elements("tag name", "textarea")
+            for ta in textareas:
+                if ta.is_displayed():
+                    target_textarea = ta
+                    break
+            if not target_textarea and textareas:
+                target_textarea = textareas[0]
 
         if target_textarea:
             target_textarea.clear()
             target_textarea.send_keys(prompt)
 
-        # 3. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
+        # 3. Configure Parameters (duration, dimensions, seed, negative prompt)
+        self._configure_parameters(
+            duration=duration,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            seed=seed,
+            randomize_seed=randomize_seed,
+            guidance_scale=guidance_scale,
+            improve_texture=improve_texture,
+            progress_callback=progress_callback,
+        )
+
+        # 4. Capture pre-existing video srcs
+        initial_srcs = set()
+        for v in self.driver.find_elements("tag name", "video"):
+            src = v.get_attribute("src") or v.get_attribute("currentSrc")
+            if src:
+                initial_srcs.add(src)
+
+        # 5. Click Generate button using Multi-Strategy (Full XPath, ID, Normalized Text, JS)
         print("[*] Clicking 'Generate Text-to-Video' button...")
         if progress_callback:
-            progress_callback("progress", {"message": "Submitted to Perchance GPU. Rendering video...", "percent": 35})
+            progress_callback("progress", {"message": f"Submitted to Perchance GPU. Rendering video ({duration}s)...", "percent": 35})
         gen_btn = self._find_element([
             ("id", "component-17"),
             ("xpath", "//*[@id='component-17']"),
@@ -305,11 +491,12 @@ class PerchanceLTXGenerator:
             self.driver.execute_script("arguments[0].click();", gen_btn)
         print("[+] Generation started! Waiting for output video...")
 
-        # 4. Poll for generated video element
-        video_url = self._wait_for_video(progress_callback=progress_callback)
+        # 6. Poll for generated video element with dynamic timeout
+        render_timeout = max(240, int(float(duration) * 35))
+        video_url = self._wait_for_video(timeout=render_timeout, initial_srcs=initial_srcs, progress_callback=progress_callback)
         print(f"[+] Found generated video URL: {video_url}")
 
-        # 5. Download Video
+        # 7. Download Video
         if progress_callback:
             progress_callback("progress", {"message": "Downloading finished MP4...", "percent": 95})
         self._download_video(video_url, output_path)
@@ -318,7 +505,8 @@ class PerchanceLTXGenerator:
 
     def _wait_for_video(
         self,
-        timeout: int = 180,
+        timeout: int = 240,
+        initial_srcs: Optional[Set[str]] = None,
         progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> str:
         """Polls for the video tag to be populated with an MP4 src."""
@@ -363,7 +551,8 @@ class PerchanceLTXGenerator:
                             src = s_src
                             break
                 if src and any(ext in src for ext in (".mp4", "blob:", "/gradio_api/file=")):
-                    return src
+                    if not initial_srcs or src not in initial_srcs:
+                        return src
             time.sleep(2)
             sys.stdout.write(".")
             sys.stdout.flush()
@@ -392,8 +581,15 @@ class PerchanceLTXGenerator:
 
 def main():
     parser = argparse.ArgumentParser(description="SeleniumBase automation for LTX-Video on Perchance.")
-    parser.add_argument("-i", "--image", required=True, help="Path to input image.")
-    parser.add_argument("-p", "--prompt", required=True, help="Animation prompt.")
+    parser.add_argument("-p", "--prompt", required=True, help="Animation / generation prompt.")
+    parser.add_argument("-i", "--image", default=None, help="Path to input image (for Image-to-Video mode).")
+    parser.add_argument("-n", "--negative-prompt", default="", help="Negative prompt.")
+    parser.add_argument("-d", "--duration", type=float, default=2.0, help="Video duration in seconds (0.3 - 8.5).")
+    parser.add_argument("-W", "--width", type=int, default=704, help="Width in pixels (divisible by 32).")
+    parser.add_argument("-H", "--height", type=int, default=512, help="Height in pixels (divisible by 32).")
+    parser.add_argument("-s", "--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--no-randomize-seed", action="store_true", help="Disable random seed.")
+    parser.add_argument("--cfg", "--guidance-scale", type=float, default=1.0, dest="guidance_scale", help="Guidance scale.")
     parser.add_argument(
         "-o",
         "--output",
@@ -406,11 +602,31 @@ def main():
 
     gen = PerchanceLTXGenerator(headless=not args.headed)
     try:
-        gen.generate_image_to_video(
-            image_path=args.image,
-            prompt=args.prompt,
-            output_path=args.output,
-        )
+        if args.image:
+            gen.generate_image_to_video(
+                image_path=args.image,
+                prompt=args.prompt,
+                negative_prompt=args.negative_prompt,
+                duration=args.duration,
+                width=args.width,
+                height=args.height,
+                seed=args.seed,
+                randomize_seed=not args.no_randomize_seed,
+                guidance_scale=args.guidance_scale,
+                output_path=args.output,
+            )
+        else:
+            gen.generate_text_to_video(
+                prompt=args.prompt,
+                negative_prompt=args.negative_prompt,
+                duration=args.duration,
+                width=args.width,
+                height=args.height,
+                seed=args.seed,
+                randomize_seed=not args.no_randomize_seed,
+                guidance_scale=args.guidance_scale,
+                output_path=args.output,
+            )
     finally:
         gen.close()
 

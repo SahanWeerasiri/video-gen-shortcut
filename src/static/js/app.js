@@ -249,7 +249,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const engineLabel = currentEngine === "selenium" ? "Selenium Browser" : (currentEngine === "direct" ? "Direct API" : "Auto (Direct + Fallback)");
-      logMessage(`[*] Submitting task to LTX-Video [${engineLabel}]...`);
+      logMessage(`[*] Submitting task to LTX-Video [${engineLabel}] (Duration: ${durationSlider.value}s, Resolution: ${widthInput.value}x${heightInput.value}, CFG: ${cfgSlider.value})...`);
       const resp = await fetch("/api/generate", {
         method: "POST",
         body: formData,

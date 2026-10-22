@@ -218,19 +218,19 @@ class LTXVideoClient:
         # 4. Prepare Queue Join Payload (fn_index 5 = Image-to-Video)
         join_payload = {
             "data": [
-                prompt,               # ID 9: Prompt
-                negative_prompt,      # ID 35: Negative Prompt
-                file_data,            # ID 8: Input Image
-                None,                 # ID 7: video_i
-                height,               # ID 44: Height (must be div by 32)
-                width,                # ID 45: Width (must be div by 32)
-                "image-to-video",     # ID 34: task
-                duration,             # ID 27: Video Duration (seconds)
-                9,                    # ID 22: Frames to use from input (N*8+1)
-                seed,                 # ID 37: Seed
-                randomize_seed,       # ID 38: Randomize Seed
-                guidance_scale,       # ID 41: Guidance Scale (CFG)
-                improve_texture,      # ID 28: Improve Texture (multi-scale)
+                prompt,                 # ID 9: Prompt
+                negative_prompt,        # ID 35: Negative Prompt
+                file_data,              # ID 8: Input Image
+                None,                   # ID 7: video_i
+                int(height),            # ID 44: Height (must be div by 32)
+                int(width),             # ID 45: Width (must be div by 32)
+                "image-to-video",       # ID 34: task
+                float(duration),        # ID 27: Video Duration (seconds)
+                9,                      # ID 22: Frames to use from input (N*8+1)
+                int(seed),              # ID 37: Seed
+                bool(randomize_seed),   # ID 38: Randomize Seed
+                float(guidance_scale),  # ID 41: Guidance Scale (CFG)
+                bool(improve_texture),  # ID 28: Improve Texture (multi-scale)
             ],
             "event_data": None,
             "fn_index": 5,
@@ -282,17 +282,17 @@ class LTXVideoClient:
             "data": [
                 prompt,
                 negative_prompt,
-                None,             # No input image
-                None,             # No video input
-                height,
-                width,
+                None,                   # No input image
+                None,                   # No video input
+                int(height),
+                int(width),
                 "text-to-video",
-                duration,
+                float(duration),
                 9,
-                seed,
-                randomize_seed,
-                guidance_scale,
-                improve_texture,
+                int(seed),
+                bool(randomize_seed),
+                float(guidance_scale),
+                bool(improve_texture),
             ],
             "event_data": None,
             "fn_index": 4,

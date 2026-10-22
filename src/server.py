@@ -216,14 +216,29 @@ def run_generation_task(
                 gen.generate_image_to_video(
                     image_path=image_path,
                     prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    duration=duration,
+                    width=width,
+                    height=height,
+                    seed=seed,
+                    randomize_seed=randomize_seed,
+                    guidance_scale=guidance_scale,
+                    improve_texture=improve_texture,
                     output_path=output_dest,
                     progress_callback=selenium_cb,
                 )
             else:
                 gen.generate_text_to_video(
                     prompt=prompt,
-                    output_path=output_dest,
                     negative_prompt=negative_prompt,
+                    duration=duration,
+                    width=width or 704,
+                    height=height or 512,
+                    seed=seed,
+                    randomize_seed=randomize_seed,
+                    guidance_scale=guidance_scale,
+                    improve_texture=improve_texture,
+                    output_path=output_dest,
                     progress_callback=selenium_cb,
                 )
         finally:
